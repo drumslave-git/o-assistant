@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: oassistant
+      POSTGRES_PASSWORD: oassistant
+      POSTGRES_DB: oassistant
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oassistant -d oassistant"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: node:22-alpine
+    working_dir: /app
+    volumes:
+      - ./prisma:/app/prisma
+      - ./prisma.config.ts:/app/prisma.config.ts
+      - ./package.json:/app/package.json
+    environment:
+      DATABASE_URL: postgresql://oassistant:oassistant@postgres:5432/oassistant
+    command: sh -c "npm install -g prisma@7 && prisma db push"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://oassistant:oassistant@postgres:5432/oassistant
+      DEFAULT_USER_ID: ${DEFAULT_USER_ID:-default-user}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:
