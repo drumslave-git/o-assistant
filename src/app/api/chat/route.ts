@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { ensureDefaultUser } from "@/lib/user";
-import { runAssistantTurn, titleFromFirstMessage } from "@/lib/session";
+import { runAssistantTurn } from "@/lib/session";
+import { streamAssistantTurn } from "@/lib/session-stream";
 import { getLlmConfig } from "@/lib/llm-config";
 import { describeProvider } from "@/lib/model-status";
 import { jsonError } from "@/lib/api";
@@ -19,7 +20,9 @@ function sseLine(data: Record<string, unknown>): string {
 }
 
 function streamChatResponse(
-  run: () => Promise<{ message: string; memoriesAdded: number }>,
+  sessionId: string,
+  userId: string,
+  userMessage: string,
   model: string,
   provider: string,
 ): ReadableStream<Uint8Array> {
@@ -50,23 +53,32 @@ function streamChatResponse(
       });
 
       const started = Date.now();
+      let firstToken = false;
 
       try {
-        const { message: reply, memoriesAdded } = await run();
-        const latencyMs = Date.now() - started;
-
-        send({
-          status: "generating",
-          detail: `Model replied in ${(latencyMs / 1000).toFixed(1)}s. Showing response…`,
-          latencyMs,
-        });
-
-        const tokens = reply.match(/\S+\s*|\s+/g) ?? [reply];
-        for (const token of tokens) {
-          send({ content: token });
+        for await (const event of streamAssistantTurn(
+          sessionId,
+          userId,
+          userMessage,
+        )) {
+          if (event.type === "content") {
+            if (!firstToken) {
+              firstToken = true;
+              send({
+                status: "streaming",
+                detail: "Receiving…",
+              });
+            }
+            send({ content: event.delta });
+          } else if (event.type === "done") {
+            const latencyMs = Date.now() - started;
+            send({ emotion: event.emotion });
+            send({ message: event.message });
+            if (event.title) send({ title: event.title });
+            send({ memoriesAdded: event.memoriesAdded, latencyMs });
+          }
         }
 
-        send({ memoriesAdded, latencyMs });
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
       } catch (error) {
@@ -106,25 +118,25 @@ export async function POST(request: NextRequest) {
       return jsonError("Session not found", 404);
     }
 
-    const messageCount = await prisma.message.count({ where: { sessionId } });
-    if (messageCount === 0) {
-      await titleFromFirstMessage(sessionId, message);
-    }
-
-    const run = () => runAssistantTurn(sessionId, user.id, message);
-
     if (stream) {
-      return new Response(streamChatResponse(run, model, provider), {
-        headers: {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
+      return new Response(
+        streamChatResponse(sessionId, user.id, message, model, provider),
+        {
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            Connection: "keep-alive",
+          },
         },
-      });
+      );
     }
 
-    const { message: reply, memoriesAdded } = await run();
-    return NextResponse.json({ reply, memoriesAdded });
+    const { message: reply, memoriesAdded, emotion, title } = await runAssistantTurn(
+      sessionId,
+      user.id,
+      message,
+    );
+    return NextResponse.json({ reply, memoriesAdded, emotion, title });
   } catch (error) {
     const { message: errMsg, status } = formatOpenAIError(error);
     return jsonError(errMsg, status);

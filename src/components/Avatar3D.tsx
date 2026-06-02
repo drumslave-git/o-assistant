@@ -3,15 +3,18 @@
 import { useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, ContactShadows } from "@react-three/drei";
+import type { EmotionMood } from "@/lib/emotion-types";
+import { moodAccentColor } from "@/lib/emotion";
 import type { Group } from "three";
 
 type Avatar3DProps = {
   speaking?: boolean;
   listening?: boolean;
+  mood?: EmotionMood;
   compact?: boolean;
 };
 
-function AvatarModel({ speaking, listening }: Avatar3DProps) {
+function AvatarModel({ speaking, listening, mood = "calm" }: Avatar3DProps) {
   const group = useRef<Group>(null);
 
   useFrame((state) => {
@@ -23,7 +26,7 @@ function AvatarModel({ speaking, listening }: Avatar3DProps) {
   });
 
   const skin = listening ? "#7dd3fc" : "#f4d4b8";
-  const accent = speaking ? "#a78bfa" : "#6366f1";
+  const accent = speaking ? "#a78bfa" : moodAccentColor(mood);
 
   return (
     <group ref={group} position={[0, -0.2, 0]}>
@@ -70,6 +73,7 @@ function AvatarModel({ speaking, listening }: Avatar3DProps) {
 export function Avatar3D({
   speaking = false,
   listening = false,
+  mood = "calm",
   compact = false,
 }: Avatar3DProps) {
   return (
@@ -82,7 +86,7 @@ export function Avatar3D({
         <ambientLight intensity={0.5} />
         <directionalLight position={[3, 5, 2]} intensity={1.2} />
         <pointLight position={[-2, 2, -1]} intensity={0.4} color="#818cf8" />
-        <AvatarModel speaking={speaking} listening={listening} />
+        <AvatarModel speaking={speaking} listening={listening} mood={mood} />
         <ContactShadows position={[0, 0, 0]} opacity={0.5} scale={4} blur={2} />
         <OrbitControls
           enablePan={false}

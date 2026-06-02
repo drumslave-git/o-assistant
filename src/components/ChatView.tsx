@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { fetchJson } from "@/lib/fetch-json";
+import { normalizeEmotion } from "@/lib/emotion";
+import type { AssistantEmotion } from "@/lib/emotion-types";
+import { DEFAULT_EMOTION } from "@/lib/emotion-types";
+import { ChatMessageContent } from "./ChatMessageContent";
+import { EmotionDisplay } from "./EmotionDisplay";
 import { VoiceInput, speakText, stopSpeaking } from "./VoiceInput";
 
 const Avatar3D = dynamic(
@@ -48,6 +53,7 @@ export function ChatView({ sessionId }: ChatViewProps) {
   const [speaking, setSpeaking] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceReplies, setVoiceReplies] = useState(true);
+  const [emotion, setEmotion] = useState<AssistantEmotion>(DEFAULT_EMOTION);
   const [activityPhase, setActivityPhase] = useState<ActivityPhase>("idle");
   const [activityDetail, setActivityDetail] = useState("");
   const [waitSeconds, setWaitSeconds] = useState(0);
@@ -56,10 +62,15 @@ export function ChatView({ sessionId }: ChatViewProps) {
 
   const loadSession = useCallback(async (id: string) => {
     const data = await fetchJson<{
-      session?: { title?: string | null; messages?: Message[] };
+      session?: {
+        title?: string | null;
+        messages?: Message[];
+        assistantEmotion?: unknown;
+      };
     }>(`/api/sessions/${id}`);
     setMessages(data.session?.messages ?? []);
     setTitle(data.session?.title ?? null);
+    setEmotion(normalizeEmotion(data.session?.assistantEmotion ?? null));
   }, []);
 
   useEffect(() => {
@@ -125,6 +136,7 @@ export function ChatView({ sessionId }: ChatViewProps) {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let assistantText = "";
+      let finalMessage = "";
       let hasStreamedContent = false;
       const streamAssistantId = `tmp-a-${Date.now()}`;
       assistantId = streamAssistantId;
@@ -149,13 +161,34 @@ export function ChatView({ sessionId }: ChatViewProps) {
               memoriesAdded?: number;
               status?: string;
               detail?: string;
+              emotion?: unknown;
+              message?: string;
+              title?: string;
             };
             if (parsed.error) throw new Error(parsed.error);
             if (parsed.status && parsed.detail) {
               setActivity(parsed.status as ActivityPhase, parsed.detail);
             }
+            if (parsed.emotion) {
+              setEmotion(normalizeEmotion(parsed.emotion));
+            }
             if (parsed.memoriesAdded && parsed.memoriesAdded > 0) {
               window.dispatchEvent(new Event("o-assistant:memories-updated"));
+            }
+            if (typeof parsed.message === "string" && parsed.message) {
+              finalMessage = parsed.message;
+              assistantText = parsed.message;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === streamAssistantId
+                    ? { ...m, content: parsed.message as string }
+                    : m,
+                ),
+              );
+            }
+            if (typeof parsed.title === "string" && parsed.title) {
+              setTitle(parsed.title);
+              window.dispatchEvent(new Event("o-assistant:sessions-updated"));
             }
             if (parsed.content) {
               if (!hasStreamedContent) {
@@ -176,9 +209,10 @@ export function ChatView({ sessionId }: ChatViewProps) {
         }
       }
 
-      if (voiceReplies && assistantText) {
+      const textForVoice = finalMessage || assistantText;
+      if (voiceReplies && textForVoice) {
         setSpeaking(true);
-        speakText(assistantText, () => setSpeaking(false));
+        speakText(textForVoice, () => setSpeaking(false));
       }
 
       await loadSession(sessionId);
@@ -209,10 +243,13 @@ export function ChatView({ sessionId }: ChatViewProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex shrink-0 items-center justify-between border-b border-[var(--border-subtle)] px-4 py-3">
-        <h2 className="truncate text-sm font-medium text-[var(--text-secondary)]">
-          {title ?? "New chat"}
-        </h2>
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-4 py-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <h2 className="truncate text-sm font-medium text-[var(--text-secondary)]">
+            {title ?? "New chat"}
+          </h2>
+          <EmotionDisplay emotion={emotion} compact />
+        </div>
         <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--text-secondary)]">
           <input
             type="checkbox"
@@ -228,8 +265,14 @@ export function ChatView({ sessionId }: ChatViewProps) {
         {isEmpty ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-12">
             <div className="h-28 w-28 overflow-hidden rounded-2xl">
-              <Avatar3D speaking={speaking} listening={listening} compact />
+              <Avatar3D
+                speaking={speaking}
+                listening={listening}
+                mood={emotion.mood}
+                compact
+              />
             </div>
+            <EmotionDisplay emotion={emotion} />
             <p className="text-center text-2xl font-medium text-[var(--text-primary)]">
               How can I help you today?
             </p>
@@ -249,20 +292,22 @@ export function ChatView({ sessionId }: ChatViewProps) {
                   </div>
                 )}
                 <div
-                  className={`max-w-[85%] text-[15px] leading-relaxed ${
+                  className={`min-w-0 max-w-[85%] ${
                     m.role === "user"
                       ? "rounded-3xl bg-[var(--bg-elevated)] px-4 py-2.5"
                       : "text-[var(--text-primary)]"
                   }`}
                 >
-                  {m.content ||
-                    (loading && m.role === "assistant" ? (
-                      <span className="text-[var(--text-secondary)]">
-                        {activityDetail || "…"}
-                      </span>
-                    ) : (
-                      ""
-                    ))}
+                  {m.content ? (
+                    <ChatMessageContent
+                      content={m.content}
+                      variant={m.role === "user" ? "user" : "assistant"}
+                    />
+                  ) : loading && m.role === "assistant" ? (
+                    <span className="text-[15px] text-[var(--text-secondary)]">
+                      {activityDetail || "…"}
+                    </span>
+                  ) : null}
                 </div>
               </div>
             ))}

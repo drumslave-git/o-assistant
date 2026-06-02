@@ -1,16 +1,26 @@
+import { ASSISTANT_REPLY_INSTRUCTIONS } from "./assistant-format";
 import {
-  ASSISTANT_JSON_INSTRUCTIONS,
-} from "./assistant-format";
+  EMOTION_AWARENESS_PERSONA,
+  formatCurrentEmotionBlock,
+  formatMoodArc,
+} from "./emotion";
+import type { AssistantEmotion } from "./emotion-types";
 import { formatMemoriesForSystem } from "./memory";
 import { prisma } from "./db";
-const ASSISTANT_PERSONA = `You are O, a warm, capable personal assistant.
-Use session context and stored long-term memories about the user naturally.`;
 
 export function buildSystemPrompt(options: {
   customInstructions?: string | null;
   memories: { category: string; content: string }[];
+  emotion: AssistantEmotion;
+  moodArc?: AssistantEmotion[];
 }): string {
-  const parts = [ASSISTANT_PERSONA, ASSISTANT_JSON_INSTRUCTIONS];
+  const parts = [
+    EMOTION_AWARENESS_PERSONA,
+    options.moodArc?.length
+      ? formatMoodArc(options.moodArc, options.emotion)
+      : formatCurrentEmotionBlock(options.emotion),
+    ASSISTANT_REPLY_INSTRUCTIONS,
+  ];
 
   const custom = options.customInstructions?.trim();
   if (custom) {

@@ -8,6 +8,7 @@ import { createOpenAIClient } from "@/lib/openai";
 import { ensureDefaultUser } from "@/lib/user";
 import { prisma } from "@/lib/db";
 import { getMemoriesForPrompt } from "@/lib/memory";
+import { normalizeEmotion, formatEmotionTurnReminder } from "@/lib/emotion";
 import { buildSystemPrompt, getCustomInstructions } from "@/lib/instructions";
 import { formatOpenAIError } from "@/lib/openai-errors";
 
@@ -59,14 +60,35 @@ export async function POST(request: NextRequest) {
       return jsonError("session_id not found", 404);
     }
 
-    const [memories, customInstructions] = await Promise.all([
+    const [memories, customInstructions, priorMessages] = await Promise.all([
       getMemoriesForPrompt(user.id),
       getCustomInstructions(user.id),
+      prisma.message.findMany({
+        where: { sessionId: session_id },
+        orderBy: { createdAt: "asc" },
+        take: 50,
+        select: { role: true, emotion: true },
+      }),
     ]);
-    const systemBlock = buildSystemPrompt({ customInstructions, memories });
+
+    const currentEmotion = normalizeEmotion(session.assistantEmotion);
+    const moodArc = priorMessages
+      .filter((m) => m.role === "assistant" && m.emotion != null)
+      .map((m) => normalizeEmotion(m.emotion));
+
+    const systemBlock = buildSystemPrompt({
+      customInstructions,
+      memories,
+      emotion: currentEmotion,
+      moodArc,
+    });
     const lastUser = [...outbound].reverse().find((m) => m.role === "user");
 
-    outbound = [{ role: "system", content: systemBlock }, ...outbound];
+    outbound = [
+      { role: "system", content: systemBlock },
+      ...outbound,
+      { role: "system", content: formatEmotionTurnReminder(currentEmotion) },
+    ];
 
     if (lastUser) {
       await prisma.message.create({
