@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { stripTextForTts } from "@/lib/tts-text";
 
 type VoiceInputProps = {
@@ -14,56 +14,10 @@ export function VoiceInput({
   onListeningChange,
   disabled,
 }: VoiceInputProps) {
-  const [listening, setListening] = useState(false);
-  const [supported, setSupported] = useState(true);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-
-  useEffect(() => {
-    const SR =
-      typeof window !== "undefined"
-        ? window.SpeechRecognition || window.webkitSpeechRecognition
-        : undefined;
-    if (!SR) {
-      setSupported(false);
-      return;
-    }
-
-    const recognition = new SR();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const last = event.results[event.results.length - 1];
-      if (last.isFinal) {
-        const text = last[0].transcript.trim();
-        if (text) onTranscript(text);
-      }
-    };
-
-    recognition.onend = () => {
-      setListening(false);
-      onListeningChange?.(false);
-    };
-
-    recognition.onerror = () => {
-      setListening(false);
-      onListeningChange?.(false);
-    };
-
-    recognitionRef.current = recognition;
-  }, [onTranscript, onListeningChange]);
-
-  const toggle = useCallback(() => {
-    if (!recognitionRef.current || disabled) return;
-    if (listening) {
-      recognitionRef.current.stop();
-      return;
-    }
-    setListening(true);
-    onListeningChange?.(true);
-    recognitionRef.current.start();
-  }, [listening, disabled, onListeningChange]);
+  const { listening, supported, toggle } = useSpeechRecognition({
+    onFinalTranscript: onTranscript,
+    onListeningChange,
+  });
 
   if (!supported) {
     return (
@@ -194,7 +148,6 @@ async function speakTextWithTts(text: string, onEnd?: () => void) {
     }
     if (generation !== playbackGeneration) return;
     cleanupAudio();
-    // Only use browser speech when the TTS API did not return audio.
     fallbackSpeak(spoken, finish);
   } finally {
     if (currentAbort === controller) {

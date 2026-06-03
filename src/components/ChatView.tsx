@@ -6,16 +6,24 @@ import { fetchJson } from "@/lib/fetch-json";
 import { normalizeEmotion } from "@/lib/emotion";
 import type { AssistantEmotion } from "@/lib/emotion-types";
 import { DEFAULT_EMOTION } from "@/lib/emotion-types";
+import { useChatAvatar } from "@/components/layout/ChatAvatarContext";
 import { ChatMessageContent } from "./ChatMessageContent";
 import { EmotionDisplay } from "./EmotionDisplay";
-import { VoiceInput, speakText, stopSpeaking } from "./VoiceInput";
+import {
+  VoiceModeControls,
+  VoiceModeToggleButton,
+  type VoiceModeStatus,
+} from "./VoiceModeControls";
+import { speakText, stopSpeaking } from "./VoiceInput";
+
+const VOICE_MODE_STORAGE_KEY = "o-assistant:voice-mode";
 
 const Avatar3D = dynamic(
   () => import("./Avatar3D").then((m) => m.Avatar3D),
   {
     ssr: false,
     loading: () => (
-      <div className="h-24 w-24 animate-pulse rounded-full bg-[var(--bg-elevated)]" />
+      <div className="h-28 w-28 animate-pulse rounded-2xl bg-[var(--bg-elevated)]" />
     ),
   },
 );
@@ -46,19 +54,46 @@ type ChatViewProps = {
 };
 
 export function ChatView({ sessionId }: ChatViewProps) {
+  const { setAvatarState } = useChatAvatar();
   const [messages, setMessages] = useState<Message[]>([]);
   const [title, setTitle] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [listening, setListening] = useState(false);
-  const [voiceReplies, setVoiceReplies] = useState(true);
+  const [voiceMode, setVoiceMode] = useState(false);
   const [emotion, setEmotion] = useState<AssistantEmotion>(DEFAULT_EMOTION);
   const [activityPhase, setActivityPhase] = useState<ActivityPhase>("idle");
   const [activityDetail, setActivityDetail] = useState("");
   const [waitSeconds, setWaitSeconds] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const waitStartedRef = useRef<number | null>(null);
+  const startListeningRef = useRef<(() => void) | null>(null);
+  const stopListeningRef = useRef<(() => void) | null>(null);
+  const voiceModeRef = useRef(voiceMode);
+
+  useEffect(() => {
+    voiceModeRef.current = voiceMode;
+  }, [voiceMode]);
+
+  useEffect(() => {
+    setAvatarState({
+      emotion,
+      speaking,
+      listening,
+      loading,
+      activityPhase,
+      activityDetail,
+    });
+  }, [
+    emotion,
+    speaking,
+    listening,
+    loading,
+    activityPhase,
+    activityDetail,
+    setAvatarState,
+  ]);
 
   const loadSession = useCallback(async (id: string) => {
     const data = await fetchJson<{
@@ -76,6 +111,39 @@ export function ChatView({ sessionId }: ChatViewProps) {
   useEffect(() => {
     void loadSession(sessionId);
   }, [sessionId, loadSession]);
+
+  useEffect(() => {
+    try {
+      setVoiceMode(localStorage.getItem(VOICE_MODE_STORAGE_KEY) === "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  function toggleVoiceMode() {
+    setVoiceMode((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(VOICE_MODE_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      if (!next) {
+        stopListeningRef.current?.();
+        stopSpeaking();
+        setSpeaking(false);
+      }
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    if (!voiceMode || loading || speaking) return;
+    const timer = window.setTimeout(() => {
+      if (voiceModeRef.current) startListeningRef.current?.();
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [voiceMode, loading, speaking]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -113,6 +181,7 @@ export function ChatView({ sessionId }: ChatViewProps) {
     setInput("");
     setLoading(true);
     setActivity("queued", "Sending…");
+    stopListeningRef.current?.();
     stopSpeaking();
 
     let assistantId: string | null = null;
@@ -210,7 +279,7 @@ export function ChatView({ sessionId }: ChatViewProps) {
       }
 
       const textForVoice = finalMessage || assistantText;
-      if (voiceReplies && textForVoice) {
+      if (voiceMode && textForVoice) {
         setSpeaking(true);
         speakText(textForVoice, () => setSpeaking(false));
       }
@@ -241,6 +310,14 @@ export function ChatView({ sessionId }: ChatViewProps) {
   const showActivity = loading && activityPhase !== "idle";
   const isEmpty = messages.length === 0 && !loading;
 
+  const voiceModeStatus: VoiceModeStatus = speaking
+    ? "speaking"
+    : listening
+      ? "listening"
+      : loading
+        ? "thinking"
+        : "ready";
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-4 py-3">
@@ -250,21 +327,17 @@ export function ChatView({ sessionId }: ChatViewProps) {
           </h2>
           <EmotionDisplay emotion={emotion} compact />
         </div>
-        <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--text-secondary)]">
-          <input
-            type="checkbox"
-            checked={voiceReplies}
-            onChange={(e) => setVoiceReplies(e.target.checked)}
-            className="rounded border-slate-600"
-          />
-          Speak replies
-        </label>
+        {voiceMode ? (
+          <span className="rounded-full bg-indigo-500/15 px-2.5 py-1 text-xs font-medium text-indigo-300">
+            Voice mode
+          </span>
+        ) : null}
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {isEmpty ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-12">
-            <div className="h-28 w-28 overflow-hidden rounded-2xl">
+            <div className="h-28 w-28 overflow-hidden rounded-2xl xl:hidden">
               <Avatar3D
                 speaking={speaking}
                 listening={listening}
@@ -272,7 +345,9 @@ export function ChatView({ sessionId }: ChatViewProps) {
                 compact
               />
             </div>
-            <EmotionDisplay emotion={emotion} />
+            <div className="xl:hidden">
+              <EmotionDisplay emotion={emotion} />
+            </div>
             <p className="text-center text-2xl font-medium text-[var(--text-primary)]">
               How can I help you today?
             </p>
@@ -328,45 +403,74 @@ export function ChatView({ sessionId }: ChatViewProps) {
       )}
 
       <div className="shrink-0 border-t border-[var(--border-subtle)] p-4">
-        <form
-          className="mx-auto flex max-w-3xl items-end gap-2 rounded-3xl border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 py-2 shadow-lg"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void sendMessage(input);
-          }}
-        >
-          <VoiceInput
-            disabled={loading}
-            onListeningChange={setListening}
-            onTranscript={(text) => void sendMessage(text)}
-          />
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void sendMessage(input);
-              }
+        {voiceMode ? (
+          <div className="mx-auto max-w-3xl">
+            <VoiceModeControls
+              status={voiceModeStatus}
+              statusDetail={activityDetail}
+              disabled={loading && !speaking}
+              onListeningChange={setListening}
+              onTranscript={(text) => void sendMessage(text)}
+              onInterruptSpeaking={() => {
+                stopSpeaking();
+                setSpeaking(false);
+              }}
+              startListeningRef={startListeningRef}
+              stopListeningRef={stopListeningRef}
+            />
+            <div className="flex justify-center border-t border-[var(--border-subtle)] pt-4">
+              <button
+                type="button"
+                onClick={toggleVoiceMode}
+                className="text-sm text-[var(--text-secondary)] transition hover:text-[var(--text-primary)]"
+              >
+                Exit voice mode
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form
+            className="mx-auto flex max-w-3xl items-end gap-2 rounded-3xl border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 py-2 shadow-lg"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void sendMessage(input);
             }}
-            placeholder="Message O…"
-            disabled={loading}
-            rows={1}
-            className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent px-2 py-3 text-[15px] text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none disabled:opacity-50"
-          />
-          <button
-            type="submit"
-            disabled={loading || !input.trim()}
-            className="mb-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-sidebar)] transition hover:opacity-90 disabled:opacity-30"
-            aria-label="Send"
           >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M3.4 20.4l17.45-7.48a1 1 0 000-1.84L3.4 4.6a1 1 0 00-1.52 1.04l2.57 7.93H11a1 1 0 010 2H4.45l-2.57 7.93a1 1 0 001.52 1.04z" />
-            </svg>
-          </button>
-        </form>
+            <VoiceModeToggleButton
+              active={false}
+              onClick={toggleVoiceMode}
+              disabled={loading}
+            />
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void sendMessage(input);
+                }
+              }}
+              placeholder="Message O…"
+              disabled={loading}
+              rows={1}
+              className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent px-2 py-3 text-[15px] text-[var(--text-primary)] placeholder:text-[var(--text-secondary)] focus:outline-none disabled:opacity-50"
+            />
+            <button
+              type="submit"
+              disabled={loading || !input.trim()}
+              className="mb-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--bg-sidebar)] transition hover:opacity-90 disabled:opacity-30"
+              aria-label="Send"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3.4 20.4l17.45-7.48a1 1 0 000-1.84L3.4 4.6a1 1 0 00-1.52 1.04l2.57 7.93H11a1 1 0 010 2H4.45l-2.57 7.93a1 1 0 001.52 1.04z" />
+              </svg>
+            </button>
+          </form>
+        )}
         <p className="mx-auto mt-2 max-w-3xl text-center text-[11px] text-[var(--text-secondary)]">
-          O can make mistakes. Check important info.
+          {voiceMode
+            ? "Hands-free conversation — O listens again after each reply."
+            : "O can make mistakes. Check important info."}
         </p>
       </div>
     </div>

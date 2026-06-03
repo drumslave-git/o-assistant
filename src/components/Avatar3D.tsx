@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, ContactShadows } from "@react-three/drei";
+import { Center, OrbitControls, ContactShadows } from "@react-three/drei";
 import type { EmotionMood } from "@/lib/emotion-types";
 import { moodAccentColor } from "@/lib/emotion";
 import type { Group } from "three";
@@ -29,7 +29,7 @@ function AvatarModel({ speaking, listening, mood = "calm" }: Avatar3DProps) {
   const accent = speaking ? "#a78bfa" : moodAccentColor(mood);
 
   return (
-    <group ref={group} position={[0, -0.2, 0]}>
+    <group ref={group}>
       <mesh position={[0, 1.55, 0]}>
         <sphereGeometry args={[0.32, 32, 32]} />
         <meshStandardMaterial color={skin} roughness={0.6} />
@@ -82,13 +82,16 @@ export function Avatar3D({
         compact ? "min-h-0" : "min-h-[280px]"
       }`}
     >
-      <Canvas camera={{ position: [0, 1.2, 2.8], fov: 42 }}>
+      <Canvas camera={{ position: [0, 0, 3.2], fov: 42 }}>
         <ambientLight intensity={0.5} />
         <directionalLight position={[3, 5, 2]} intensity={1.2} />
         <pointLight position={[-2, 2, -1]} intensity={0.4} color="#818cf8" />
-        <AvatarModel speaking={speaking} listening={listening} mood={mood} />
-        <ContactShadows position={[0, 0, 0]} opacity={0.5} scale={4} blur={2} />
+        <Center>
+          <AvatarModel speaking={speaking} listening={listening} mood={mood} />
+        </Center>
+        <ContactShadows position={[0, -0.85, 0]} opacity={0.5} scale={4} blur={2} />
         <OrbitControls
+          target={[0, 0, 0]}
           enablePan={false}
           minPolarAngle={Math.PI / 3}
           maxPolarAngle={Math.PI / 2}
