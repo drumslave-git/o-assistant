@@ -1,5 +1,6 @@
 import { prisma } from "./db";
 import { getLlmConfig } from "./llm-config";
+import { withOllamaKeepAlive } from "./ollama";
 import { createOpenAIClient } from "./openai";
 
 const TITLE_PROMPT = `You create short chat titles for a sidebar (like ChatGPT).
@@ -40,19 +41,21 @@ export async function generateSessionTitle(
     const llm = await getLlmConfig(userId);
     const client = createOpenAIClient(llm);
 
-    const completion = await client.chat.completions.create({
-      model: llm.model,
-      messages: [
-        { role: "system", content: TITLE_PROMPT },
-        {
-          role: "user",
-          content: `User:\n${trimmedUser}\n\nAssistant:\n${trimmedAssistant || "(no reply yet)"}`,
-        },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.4,
-      max_tokens: 40,
-    });
+    const completion = await client.chat.completions.create(
+      withOllamaKeepAlive(llm.baseURL, {
+        model: llm.model,
+        messages: [
+          { role: "system", content: TITLE_PROMPT },
+          {
+            role: "user",
+            content: `User:\n${trimmedUser}\n\nAssistant:\n${trimmedAssistant || "(no reply yet)"}`,
+          },
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.4,
+        max_tokens: 40,
+      }),
+    );
 
     const raw = completion.choices[0]?.message?.content ?? "";
     const title = parseTitleJson(raw);

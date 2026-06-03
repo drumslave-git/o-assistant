@@ -5,6 +5,7 @@ import { visibleReplyStreamText } from "./assistant-stream";
 import { parseAssistantResponse } from "./assistant-format";
 import { buildChatMessages } from "./session";
 import { getLlmConfig } from "./llm-config";
+import { withOllamaKeepAlive } from "./ollama";
 import { createOpenAIClient } from "./openai";
 import { storeAssistantMemories } from "./memory";
 import { maybeGenerateSessionTitle } from "./session-title";
@@ -38,13 +39,15 @@ export async function* streamAssistantTurn(
   const llm = await getLlmConfig(userId);
   const client = createOpenAIClient(llm);
 
-  const completion = await client.chat.completions.create({
-    model: llm.model,
-    messages,
-    temperature: 0.7,
-    max_tokens: 8192,
-    stream: true,
-  });
+  const completion = await client.chat.completions.create(
+    withOllamaKeepAlive(llm.baseURL, {
+      model: llm.model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 8192,
+      stream: true,
+    }),
+  );
 
   let raw = "";
   let lastDisplayed = "";

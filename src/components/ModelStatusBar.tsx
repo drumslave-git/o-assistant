@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ModelUnloadButton } from "@/components/ModelUnloadButton";
 import { useModelStatus } from "@/hooks/useModelStatus";
 
 export function ModelStatusBar() {
@@ -36,6 +37,11 @@ export function ModelStatusBar() {
         </span>
       )}
       <div className="ml-auto flex shrink-0 items-center gap-2">
+        <ModelUnloadButton
+          status={status}
+          size="sm"
+          onDone={() => void refresh()}
+        />
         <button
           type="button"
           onClick={() => void refresh()}

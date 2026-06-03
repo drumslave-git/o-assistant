@@ -2,17 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { fetchJson } from "@/lib/fetch-json";
+import type { ModelStatus } from "@/lib/model-status";
 
-export type ModelStatus = {
-  online: boolean;
-  configured: boolean;
-  model: string;
-  provider: string;
-  baseURL: string;
-  latencyMs: number | null;
-  message: string;
-  checkedAt: string;
-};
+export type { ModelStatus };
 
 export function useModelStatus() {
   const [status, setStatus] = useState<ModelStatus | null>(null);

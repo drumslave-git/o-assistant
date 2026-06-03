@@ -1,15 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ModelUnloadButton } from "@/components/ModelUnloadButton";
 import { fetchJson } from "@/lib/fetch-json";
 import type { LlmUserConfig } from "@/lib/llm-types";
+import { useModelStatus } from "@/hooks/useModelStatus";
 
 export function LlmSettingsPanel() {
+  const { status: modelStatus, refresh: refreshModelStatus } = useModelStatus();
   const [config, setConfig] = useState<LlmUserConfig | null>(null);
   const [saved, setSaved] = useState<LlmUserConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
 
   const loadConfig = useCallback(async () => {
     setLoading(true);
@@ -39,7 +42,7 @@ export function LlmSettingsPanel() {
     e.preventDefault();
     if (!config) return;
     setSaving(true);
-    setStatus(null);
+    setSaveStatus(null);
     try {
       const data = await fetchJson<{ config: LlmUserConfig }>("/api/llm/config", {
         method: "PUT",
@@ -48,10 +51,10 @@ export function LlmSettingsPanel() {
       });
       setConfig(data.config);
       setSaved(data.config);
-      setStatus("Saved");
+      setSaveStatus("Saved");
       window.dispatchEvent(new Event("o-assistant:llm-config-updated"));
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Save failed");
+      setSaveStatus(err instanceof Error ? err.message : "Save failed");
     } finally {
       setSaving(false);
     }
@@ -101,12 +104,25 @@ export function LlmSettingsPanel() {
         />
       </label>
 
+      {modelStatus?.ollama && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-500/20 bg-amber-500/5 px-4 py-3">
+          <p className="min-w-0 flex-1 text-sm text-[var(--text-secondary)]">
+            Ollama keeps the model loaded (<code className="text-xs">keep_alive=-1</code>).
+            Unload when you want to free VRAM.
+          </p>
+          <ModelUnloadButton
+            status={modelStatus}
+            onDone={() => void refreshModelStatus()}
+          />
+        </div>
+      )}
+
       <div className="flex items-center gap-2 pt-1">
-        {status && (
+        {saveStatus && (
           <span
-            className={`text-xs ${status === "Saved" ? "text-emerald-400" : "text-rose-400"}`}
+            className={`text-xs ${saveStatus === "Saved" ? "text-emerald-400" : "text-rose-400"}`}
           >
-            {status}
+            {saveStatus}
           </span>
         )}
         <button

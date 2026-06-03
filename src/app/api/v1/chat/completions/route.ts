@@ -4,6 +4,7 @@ import OpenAI from "openai";
 import { checkApiAuth } from "@/lib/auth";
 import { jsonError } from "@/lib/api";
 import { getLlmConfig } from "@/lib/llm-config";
+import { withOllamaKeepAlive } from "@/lib/ollama";
 import { createOpenAIClient } from "@/lib/openai";
 import { ensureDefaultUser } from "@/lib/user";
 import { prisma } from "@/lib/db";
@@ -99,13 +100,15 @@ export async function POST(request: NextRequest) {
 
   let completion;
   try {
-    completion = await client.chat.completions.create({
-      model,
-      messages: outbound,
-      stream: stream ?? false,
-      temperature,
-      max_tokens,
-    });
+    completion = await client.chat.completions.create(
+      withOllamaKeepAlive(llm.baseURL, {
+        model,
+        messages: outbound,
+        stream: stream ?? false,
+        temperature,
+        max_tokens,
+      }),
+    );
   } catch (error) {
     const { message, status } = formatOpenAIError(error);
     return jsonError(message, status);

@@ -1,9 +1,15 @@
 "use client";
 
+import { ModelUnloadButton } from "@/components/ModelUnloadButton";
+import { isModelLoadedInOllama } from "@/lib/ollama";
 import { useModelStatus } from "@/hooks/useModelStatus";
 
 export function ModelStatusPanel() {
   const { status, checking, refresh, dotClass, label } = useModelStatus();
+
+  const modelLoaded =
+    status != null &&
+    isModelLoadedInOllama(status.model, status.loadedModels ?? []);
 
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-5">
@@ -16,6 +22,9 @@ export function ModelStatusPanel() {
               <p className="mt-1 text-sm text-[var(--text-secondary)]">
                 {status.model} · {status.provider}
                 {status.latencyMs != null && status.online && ` · ${status.latencyMs}ms`}
+                {status.ollama && modelLoaded && (
+                  <span className="text-emerald-400/90"> · in VRAM</span>
+                )}
               </p>
             )}
             {status?.message && (
@@ -30,14 +39,17 @@ export function ModelStatusPanel() {
             )}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => void refresh()}
-          disabled={checking}
-          className="shrink-0 rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-sm hover:bg-[var(--bg-input)] disabled:opacity-50"
-        >
-          Recheck
-        </button>
+        <div className="flex shrink-0 flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={checking}
+            className="rounded-lg border border-[var(--border-subtle)] px-3 py-1.5 text-sm hover:bg-[var(--bg-input)] disabled:opacity-50"
+          >
+            Recheck
+          </button>
+          <ModelUnloadButton status={status} onDone={() => void refresh()} />
+        </div>
       </div>
     </div>
   );

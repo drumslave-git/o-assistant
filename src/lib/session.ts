@@ -8,6 +8,7 @@ import { getMemoriesForPrompt, storeAssistantMemories } from "./memory";
 import { maybeGenerateSessionTitle } from "./session-title";
 import { buildSystemPrompt, getCustomInstructions } from "./instructions";
 import { getLlmConfig } from "./llm-config";
+import { withOllamaKeepAlive } from "./ollama";
 import { createOpenAIClient } from "./openai";
 import { parseAssistantResponse } from "./assistant-format";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
@@ -84,12 +85,14 @@ export async function runAssistantTurn(
   const llm = await getLlmConfig(userId);
   const client = createOpenAIClient(llm);
 
-  const completion = await client.chat.completions.create({
-    model: llm.model,
-    messages,
-    temperature: 0.7,
-    max_tokens: 8192,
-  });
+  const completion = await client.chat.completions.create(
+    withOllamaKeepAlive(llm.baseURL, {
+      model: llm.model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 8192,
+    }),
+  );
 
   const raw = completion.choices[0]?.message?.content ?? "{}";
   const { message, memory, emotion } = parseAssistantResponse(raw, previousEmotion);
